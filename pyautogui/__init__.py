@@ -23,6 +23,8 @@ import platform
 import re
 import functools
 from contextlib import contextmanager
+from math import sqrt
+from random import random
 
 
 class PyAutoGUIException(Exception):
@@ -144,6 +146,40 @@ except ImportError:
     easeInBounce = _couldNotImportPyTweening
     easeOutBounce = _couldNotImportPyTweening
     easeInOutBounce = _couldNotImportPyTweening
+
+try:
+    from bezier import Curve
+except ImportError:
+    def _couldNotImportBezierCurve(*unused_args, **unused_kwargs):
+        """
+        This function raises ``PyAutoGUIException``. It's used for the Curve function names if the Curve
+        module failed to be imported.
+        """
+        raise PyAutoGUIException(
+            "PyAutoGUI was unable to import bezier. Please install this module to enable the function you tried to call."
+        )
+
+    class Curve:
+        def __init__(self, *args, **kwargs):
+            _couldNotImportBezierCurve()
+
+        def from_nodes(self, *args, **kwargs):
+            _couldNotImportBezierCurve()
+
+
+try:
+    from numpy.random import normal as rnormal
+except ImportError:
+    def _couldNotImportNumpyNormalDist(*unused_args, **unused_kwargs):
+        """
+        This function raises ``PyAutoGUIException``. It's used for the rnormal function names if the numpy.random
+        module failed to be imported.
+        """
+        raise PyAutoGUIException(
+            "PyAutoGUI was unable to import numpt.random. Please install this module to enable the function you tried to call."
+        )
+
+    rnormal = _couldNotImportNumpyNormalDist
 
 
 try:
@@ -616,6 +652,18 @@ def getPointOnLine(x1, y1, x2, y2, n):
     x = ((x2 - x1) * n) + x1
     y = ((y2 - y1) * n) + y1
     return (x, y)
+
+
+def get_normal_points(start_point, end_point, point_on_line, distance_from_line):
+    px, py = point_on_line
+    dirx, diry = end_point[0] - start_point[0], end_point[1] - start_point[1]
+    b = -2 * px
+    c = (px ** 2) - ((distance_from_line ** 2) / (1 + ((dirx ** 2) / (diry ** 2))))
+    x1 = (-b + sqrt((b ** 2) - 4 * c)) / 2
+    x2 = (-b - sqrt((b ** 2) - 4 * c)) / 2
+    y1 = ((-dirx * (x1 - px)) / diry) + py
+    y2 = ((-dirx * (x2 - px)) / diry) + py
+    return (x1, y1), (x2, y2)
 
 
 def linear(n):
@@ -1486,7 +1534,18 @@ def _mouseMoveDrag(moveOrDrag, x, y, xOffset, yOffset, duration, tween=linear, b
             num_steps = int(duration / MINIMUM_SLEEP)
             sleep_amount = duration / num_steps
 
-        steps = [getPointOnLine(startx, starty, x, y, tween(n / num_steps)) for n in range(num_steps)]
+        # steps = [getPointOnLine(startx, starty, x, y, tween(n / num_steps)) for n in range(num_steps)]
+
+        line_length = sqrt((x - startx) ** 2 + (y - starty) ** 2)
+        max_height = (2 / (1 + 5 ** 0.5)) * line_length
+        distance_from_line = rnormal(scale=(max_height / 3))
+
+        tweeen = rnormal(0.5, 0.1)
+        point_on_line = getPointOnLine(startx, starty, x, y, tweeen)
+        bezier_midpoint_x, bezier_midpoint_y = get_normal_points((startx, starty), (x, y), point_on_line, distance_from_line)[random() > 0.5]
+        curve = Curve.from_nodes([[startx, bezier_midpoint_x, x], [starty, bezier_midpoint_y, y]])
+
+        steps = [tuple(curve.evaluate(tween(n / num_steps)).flatten()) for n in range(num_steps)]
         # Making sure the last position is the actual destination.
         steps.append((x, y))
 
