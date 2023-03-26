@@ -8,6 +8,7 @@ import time
 import unittest
 import doctest
 from collections import namedtuple  # Added in Python 2.6.
+from numpy.random import normal
 
 import pyautogui
 
@@ -354,6 +355,27 @@ class TestMouse(unittest.TestCase):
             tweenFunc = getattr(pyautogui, tweenName)
             resetMouse()
             pyautogui.moveTo(destination.x, destination.y, duration=pyautogui.MINIMUM_DURATION * 2, tween=tweenFunc)
+            mousepos = P(*pyautogui.position())
+            self.assertEqual(
+                mousepos,
+                destination,
+                "%s tween move failed. mousepos set to %s instead of %s" % (tweenName, mousepos, destination),
+            )
+
+    def test_moveToWithBezier(self):
+        origin = self.center - P(100, 100)
+        destination = self.center + P(100, 100)
+
+        def resetMouse():
+            pyautogui.moveTo(*origin)
+            mousepos = P(*pyautogui.position())
+            self.assertEqual(mousepos, origin)
+
+        for tweenName in self.TWEENS:
+            tweenFunc = getattr(pyautogui, tweenName)
+            resetMouse()
+            rvs = normal(), normal(), normal()
+            pyautogui.moveTo(destination.x, destination.y, duration=pyautogui.MINIMUM_DURATION * 2, tween=tweenFunc, path_fun=pyautogui.getPathFunc(*rvs))
             mousepos = P(*pyautogui.position())
             self.assertEqual(
                 mousepos,

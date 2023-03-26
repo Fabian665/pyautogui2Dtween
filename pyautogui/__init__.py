@@ -13,7 +13,7 @@
 from __future__ import absolute_import, division, print_function
 
 
-__version__ = "0.9.53"
+__version__ = "0.9.53-bezier"
 
 import sys
 import time
@@ -25,6 +25,7 @@ import functools
 from contextlib import contextmanager
 from math import sqrt
 from random import random
+from numbers import Number
 
 
 class PyAutoGUIException(Exception):
@@ -146,25 +147,6 @@ except ImportError:
     easeInBounce = _couldNotImportPyTweening
     easeOutBounce = _couldNotImportPyTweening
     easeInOutBounce = _couldNotImportPyTweening
-
-try:
-    from bezier import Curve
-except ImportError:
-    def _couldNotImportBezierCurve(*unused_args, **unused_kwargs):
-        """
-        This function raises ``PyAutoGUIException``. It's used for the Curve function names if the Curve
-        module failed to be imported.
-        """
-        raise PyAutoGUIException(
-            "PyAutoGUI was unable to import bezier. Please install this module to enable the function you tried to call."
-        )
-
-    class Curve:
-        def __init__(self, *args, **kwargs):
-            _couldNotImportBezierCurve()
-
-        def from_nodes(self, *args, **kwargs):
-            _couldNotImportBezierCurve()
 
 
 try:
@@ -654,16 +636,40 @@ def getPointOnLine(x1, y1, x2, y2, n):
     return (x, y)
 
 
-def get_normal_points(start_point, end_point, point_on_line, distance_from_line):
-    px, py = point_on_line
-    dirx, diry = end_point[0] - start_point[0], end_point[1] - start_point[1]
+def getNormalPoints(startPoint, endPoint, pointOnLine, distanceFromLine):
+    px, py = pointOnLine
+    dirx, diry = endPoint[0] - startPoint[0], endPoint[1] - startPoint[1]
+    if diry == 0:
+        return (pointOnLine[0], pointOnLine[1] + distanceFromLine), (pointOnLine[0], pointOnLine[1] - distanceFromLine)
+    elif dirx == 0:
+        return (pointOnLine[0] + distanceFromLine, pointOnLine[1]), (pointOnLine[0] - distanceFromLine, pointOnLine[1])
     b = -2 * px
-    c = (px ** 2) - ((distance_from_line ** 2) / (1 + ((dirx ** 2) / (diry ** 2))))
+    c = (px ** 2) - ((distanceFromLine ** 2) / (1 + ((dirx ** 2) / (diry ** 2))))
     x1 = (-b + sqrt((b ** 2) - 4 * c)) / 2
     x2 = (-b - sqrt((b ** 2) - 4 * c)) / 2
     y1 = ((-dirx * (x1 - px)) / diry) + py
     y2 = ((-dirx * (x2 - px)) / diry) + py
     return (x1, y1), (x2, y2)
+
+
+def quadratic_bezier_curve(start, controlPoint, end, t):
+    x = ((1 - t) ** 2) * start[0] + 2 * t * (1 - t) * controlPoint[0] + (t ** 2) * end[0]
+    y = ((1 - t) ** 2) * start[1] + 2 * t * (1 - t) * controlPoint[1] + (t ** 2) * end[1]
+    return x, y
+
+
+def getPathFunc(distanceRandomVariable=0.5, pointOnLineRandomVariable=0.5, directionRandomVariable=(random() - 0.5)):
+    def getPointOnBezier(x1, y1, x2, y2, n):
+        line_length = sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+        max_height = (2 / (1 + 5 ** 0.5)) * line_length
+        distance_from_line = (max_height / 3) * abs(distanceRandomVariable)
+
+        point_on_line = getPointOnLine(x1, y1, x2, y2, ((pointOnLineRandomVariable * 0.1) + 0.5))
+        control_point = getNormalPoints((x1, y1), (x2, y2), point_on_line, distance_from_line)[directionRandomVariable > 0]
+        return quadratic_bezier_curve((x1, y1), control_point, (x2, y2), n)
+    return getPointOnBezier
+
+
 
 
 def linear(n):
@@ -706,7 +712,7 @@ def _normalizeXYArgs(firstArg, secondArg):
     elif firstArg is None and secondArg is not None:
         return Point(int(position()[0]), int(secondArg))
     
-    elif secondArg is None and firstArg is not None:
+    elif secondArg is None and firstArg is not None and isinstance(firstArg, Number):
         return Point(int(firstArg), int(position()[1]))
     
     elif isinstance(firstArg, str):
@@ -1307,7 +1313,7 @@ def vscroll(clicks, x=None, y=None, logScreenshot=None, _pause=True):
 
 
 @_genericPyAutoGUIChecks
-def moveTo(x=None, y=None, duration=0.0, tween=linear, logScreenshot=False, _pause=True):
+def moveTo(x=None, y=None, duration=0.0, tween=linear, logScreenshot=False, _pause=True, pathFun=getPointOnLine):
     """Moves the mouse cursor to a point on the screen.
 
     The x and y parameters detail where the mouse event happens. If None, the
@@ -1334,11 +1340,11 @@ def moveTo(x=None, y=None, duration=0.0, tween=linear, logScreenshot=False, _pau
     x, y = _normalizeXYArgs(x, y)
 
     _logScreenshot(logScreenshot, "moveTo", "%s,%s" % (x, y), folder=".")
-    _mouseMoveDrag("move", x, y, 0, 0, duration, tween)
+    _mouseMoveDrag("move", x, y, 0, 0, duration, tween, pathFun=pathFun)
 
 
 @_genericPyAutoGUIChecks
-def moveRel(xOffset=None, yOffset=None, duration=0.0, tween=linear, logScreenshot=False, _pause=True):
+def moveRel(xOffset=None, yOffset=None, duration=0.0, tween=linear, logScreenshot=False, _pause=True, pathFun=getPointOnLine):
     """Moves the mouse cursor to a point on the screen, relative to its current
     position.
 
@@ -1364,7 +1370,7 @@ def moveRel(xOffset=None, yOffset=None, duration=0.0, tween=linear, logScreensho
     xOffset, yOffset = _normalizeXYArgs(xOffset, yOffset)
 
     _logScreenshot(logScreenshot, "moveRel", "%s,%s" % (xOffset, yOffset), folder=".")
-    _mouseMoveDrag("move", None, None, xOffset, yOffset, duration, tween)
+    _mouseMoveDrag("move", None, None, xOffset, yOffset, duration, tween, pathFun=pathFun)
 
 
 move = moveRel  # For PyAutoGUI 1.0, move() replaces moveRel().
@@ -1372,7 +1378,7 @@ move = moveRel  # For PyAutoGUI 1.0, move() replaces moveRel().
 
 @_genericPyAutoGUIChecks
 def dragTo(
-    x=None, y=None, duration=0.0, tween=linear, button=PRIMARY, logScreenshot=None, _pause=True, mouseDownUp=True
+    x=None, y=None, duration=0.0, tween=linear, button=PRIMARY, logScreenshot=None, _pause=True, mouseDownUp=True, pathFun=getPointOnLine
 ):
     """Performs a mouse drag (mouse movement while a button is held down) to a
     point on the screen.
@@ -1406,14 +1412,14 @@ def dragTo(
     _logScreenshot(logScreenshot, "dragTo", "%s,%s" % (x, y), folder=".")
     if mouseDownUp:
         mouseDown(button=button, logScreenshot=False, _pause=False)
-    _mouseMoveDrag("drag", x, y, 0, 0, duration, tween, button)
+    _mouseMoveDrag("drag", x, y, 0, 0, duration, tween, button, pathFun=pathFun)
     if mouseDownUp:
         mouseUp(button=button, logScreenshot=False, _pause=False)
 
 
 @_genericPyAutoGUIChecks
 def dragRel(
-    xOffset=0, yOffset=0, duration=0.0, tween=linear, button=PRIMARY, logScreenshot=None, _pause=True, mouseDownUp=True
+    xOffset=0, yOffset=0, duration=0.0, tween=linear, button=PRIMARY, logScreenshot=None, _pause=True, mouseDownUp=True, pathFun=getPointOnLine
 ):
     """Performs a mouse drag (mouse movement while a button is held down) to a
     point on the screen, relative to its current position.
@@ -1455,7 +1461,7 @@ def dragRel(
     _logScreenshot(logScreenshot, "dragRel", "%s,%s" % (xOffset, yOffset), folder=".")
     if mouseDownUp:
         mouseDown(button=button, logScreenshot=False, _pause=False)
-    _mouseMoveDrag("drag", mousex, mousey, xOffset, yOffset, duration, tween, button)
+    _mouseMoveDrag("drag", mousex, mousey, xOffset, yOffset, duration, tween, button, pathFun=pathFun)
     if mouseDownUp:
         mouseUp(button=button, logScreenshot=False, _pause=False)
 
@@ -1463,7 +1469,7 @@ def dragRel(
 drag = dragRel  # For PyAutoGUI 1.0, we want drag() to replace dragRel().
 
 
-def _mouseMoveDrag(moveOrDrag, x, y, xOffset, yOffset, duration, tween=linear, button=None):
+def _mouseMoveDrag(moveOrDrag, x, y, xOffset, yOffset, duration, tween=linear, button=None, pathFun=getPointOnLine):
     """Handles the actual move or drag event, since different platforms
     implement them differently.
 
@@ -1534,18 +1540,7 @@ def _mouseMoveDrag(moveOrDrag, x, y, xOffset, yOffset, duration, tween=linear, b
             num_steps = int(duration / MINIMUM_SLEEP)
             sleep_amount = duration / num_steps
 
-        # steps = [getPointOnLine(startx, starty, x, y, tween(n / num_steps)) for n in range(num_steps)]
-
-        line_length = sqrt((x - startx) ** 2 + (y - starty) ** 2)
-        max_height = (2 / (1 + 5 ** 0.5)) * line_length
-        distance_from_line = rnormal(scale=(max_height / 3))
-
-        tweeen = rnormal(0.5, 0.1)
-        point_on_line = getPointOnLine(startx, starty, x, y, tweeen)
-        bezier_midpoint_x, bezier_midpoint_y = get_normal_points((startx, starty), (x, y), point_on_line, distance_from_line)[random() > 0.5]
-        curve = Curve.from_nodes([[startx, bezier_midpoint_x, x], [starty, bezier_midpoint_y, y]])
-
-        steps = [tuple(curve.evaluate(tween(n / num_steps)).flatten()) for n in range(num_steps)]
+        steps = [pathFun(startx, starty, x, y, tween(n / num_steps)) for n in range(num_steps)]
         # Making sure the last position is the actual destination.
         steps.append((x, y))
 

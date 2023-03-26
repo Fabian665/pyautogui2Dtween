@@ -2,6 +2,5 @@ pytweening~=1.0.4
 PyScreeze~=0.1.28
 setuptools~=60.2.0
 MouseInfo~=0.1.3
-bezier~=2021.2.12
 PyMsgBox~=1.0.9
 PyGetWindow~=0.0.9
